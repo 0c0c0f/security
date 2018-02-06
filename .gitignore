@@ -1,0 +1,25 @@
+# Created by .ignore support plugin (hsz.mobi)
+**/target
+**/**/target
+**/build
+**/.svn
+**/.classpath
+**/.project
+**/.settings
+**/.springBean
+**/*.iml
+**/*.idea
+**/.externalToolBuilders
+**/src.test-output
+
+/target
+/build
+/.svn
+/.classpath
+/.project
+/.settings
+/.springBean
+/*.iml
+/*.idea
+/.externalToolBuilders
+/src.test-output
