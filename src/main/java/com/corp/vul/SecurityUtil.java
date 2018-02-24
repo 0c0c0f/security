@@ -1,5 +1,6 @@
 package com.corp.vul;
 
+import com.mysql.cj.core.util.StringUtils;
 import org.apache.commons.fileupload.FileItem;
 import org.apache.commons.fileupload.disk.DiskFileItemFactory;
 import org.apache.commons.fileupload.servlet.ServletFileUpload;
@@ -7,6 +8,9 @@ import org.apache.commons.fileupload.ProgressListener;
 import org.apache.log4j.Logger;
 
 import java.io.File;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
@@ -18,6 +22,7 @@ import com.coverity.security.Escape;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
+
 
 import static java.util.Arrays.asList;
 
@@ -50,6 +55,148 @@ public class SecurityUtil {
             return Escape.html(Escape.cssString(content));
         }
         return Escape.html(content);
+    }
+
+    private static boolean isEscapeNeededForString(String x, int stringLength) {
+        boolean needsHexEscape = false;
+
+        for (int i = 0; i < stringLength; ++i) {
+            char c = x.charAt(i);
+
+            switch (c) {
+                case 0: /* Must be escaped for 'mysql' */
+
+                    needsHexEscape = true;
+                    break;
+
+                case '\n': /* Must be escaped for logs */
+                    needsHexEscape = true;
+
+                    break;
+
+                case '\r':
+                    needsHexEscape = true;
+                    break;
+
+                case '\\':
+                    needsHexEscape = true;
+
+                    break;
+
+                case '\'':
+                    needsHexEscape = true;
+
+                    break;
+
+                case '"': /* Better safe than sorry */
+                    needsHexEscape = true;
+
+                    break;
+
+                case '\032': /* This gives problems on Win32 */
+                    needsHexEscape = true;
+                    break;
+            }
+
+            if (needsHexEscape) {
+                break; // no need to scan more
+            }
+        }
+        return needsHexEscape;
+    }
+
+    public static String JdbcSecuritySQLI(String content) {
+        //根据关键字过滤
+        int stringLength = content.length();
+        String parameterAsString = content;
+        boolean needsQuoted = true;
+
+        if (isEscapeNeededForString(content, stringLength)) {
+            needsQuoted = false; // saves an allocation later
+
+            StringBuilder buf = new StringBuilder((int) (content.length() * 1.1));
+
+            buf.append('\'');
+
+            for (int i = 0; i < stringLength; ++i) {
+                char c = content.charAt(i);
+
+                switch (c) {
+                    case 0: /* Must be escaped for 'mysql' */
+                        buf.append('\\');
+                        buf.append('0');
+
+                        break;
+
+                    case '\n': /* Must be escaped for logs */
+                        buf.append('\\');
+                        buf.append('n');
+
+                        break;
+
+                    case '\r':
+                        buf.append('\\');
+                        buf.append('r');
+
+                        break;
+
+                    case '\\':
+                        buf.append('\\');
+                        buf.append('\\');
+
+                        break;
+
+                    case '\'':
+                        buf.append('\\');
+                        buf.append('\'');
+
+                        break;
+
+                    case '"': /* Better safe than sorry */
+                        buf.append('"');
+                        break;
+
+                    case '\032': /* This gives problems on Win32 */
+                        buf.append('\\');
+                        buf.append('Z');
+
+                        break;
+
+                    case '\u00a5':
+                    case '\u20a9':
+                        // escape characters interpreted as backslash by mysql
+                        if (Charset.forName("UTF-8").newEncoder() != null) {
+                            CharBuffer cbuf = CharBuffer.allocate(1);
+                            ByteBuffer bbuf = ByteBuffer.allocate(1);
+                            cbuf.put(c);
+                            cbuf.position(0);
+                            Charset.forName("UTF-8").newEncoder()
+                                    .encode(cbuf, bbuf, true);
+                            if (bbuf.get(0) == '\\') {
+                                buf.append('\\');
+                            }
+                        }
+                        buf.append(c);
+                        break;
+
+                    default:
+                        buf.append(c);
+                }
+            }
+
+            buf.append('\'');
+
+            parameterAsString = buf.toString();
+        }
+
+        byte[] parameterAsBytes = null;
+
+        if (needsQuoted) {
+            parameterAsBytes = StringUtils.getBytesWrapped(parameterAsString, '\'', '\'', "UTF-8");
+        } else {
+            parameterAsBytes = StringUtils.getBytes(parameterAsString, "UTF-8");
+        }
+        return new String(parameterAsBytes);
     }
 
     //防范SQL注入漏洞
@@ -279,7 +426,9 @@ public class SecurityUtil {
     }
 
     public static void main(String[] args) throws Exception {
-        String rs = SecurityUtil.SecurityXssScript("<scritp>alert(1)</script>","h");
+        String rs = SecurityUtil.SecurityXssScript("<scritp>alert(1)</script>", "h");
+        String rs1 = SecurityUtil.JdbcSecuritySQLI("'select * from test where id=1 and (select 1 from (select count(*),concat(user(),floor(rand(0)*2))x from information_schema.tables group by x)a);");
         System.out.println(rs);
+        System.out.println(rs1);
     }
 }
